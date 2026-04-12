@@ -1,0 +1,145 @@
+# WT32-ETH01 V1.4 - Pinout Referenz
+# Board: WT32-ETH01 V1.4 (Wireless-Tag)
+# MCU: ESP32-WROOM, LAN8720A Ethernet PHY
+# Quelle: https://docs.cirkitdesigner.com/ + Espressif Doku
+# Abgerufen: April 2026
+
+================================================================================
+ALLGEMEINE SPEZIFIKATIONEN
+================================================================================
+MCU:          ESP32-WROOM (Dual-Core 240 MHz, 520 KB SRAM, 4MB Flash)
+Ethernet:     LAN8720A PHY (10/100 MBit, RJ45 mit magnetics)
+WLAN:         802.11 b/g/n 2.4 GHz
+Bluetooth:    BLE 4.2 + Classic
+USB:          CP2104 USB-UART Bridge (für Debug/Flash)
+Spannung:     3.3V (keine 5V Einspeisung!)
+Logikpegel:   3.3V TTL
+
+================================================================================
+LAN8720 ETHERNET – FEST VERDRAHTET (NICHT äNDERBAR)
+================================================================================
+Signal        GPIO     Funktion
+-----------   -----    ------------------------------------------------
+REF_CLK       GPIO0    50 MHz Takteingang (externer Oszillator)
+MDIO          GPIO18   Management Data I/O
+MDC           GPIO23   Management Data Clock
+TX_EN         GPIO21   Transmit Enable
+TXD0          GPIO19   Transmit Data Bit 0
+TXD1          GPIO22   Transmit Data Bit 1
+RXD0          GPIO25   Receive Data Bit 0
+RXD1          GPIO26   Receive Data Bit 1
+CRS_DV        GPIO27   Carrier Sense / Receive Data Valid
+
+⚠️ Diese 9 GPIOs sind FÜR IMMER vom Ethernet belegt!
+⚠️ GPIO0 ist NACH dem Boot nicht mehr verfügbar (Clock-Eingang)
+
+Ethernet Initialisierung (Arduino Core 3.x):
+  ETH.begin(1, -1, 23, 18, ETH_PHY_LAN8720, ETH_CLOCK_GPIO0_IN);
+  // phy_addr=1, power_pin=-1 (nicht beschaltet), mdc=23, mdio=18
+
+================================================================================
+VERFÜGBARE GPIOs (Frei nutzbar)
+================================================================================
+GPIO   Richtung   Bemerkung
+----   ---------  ------------------------------------------------------
+GPIO2  I/O        TXD0 (UART0 TX) – kann auch als GPIO genutzt werden
+GPIO3  I/O        RXD0 (UART0 RX) – Debug/Serial über USB
+GPIO4  I/O        Frei (empfohlen für UART1 TX oder SML TX)
+GPIO5  I/O        Frei (PWM-fähig)
+GPIO12 I/O        Strapping-Pin: VDD_SDIO (muss LOW für 3.3V Flash)
+GPIO13 I/O        Frei (empfohlen für UART2 RX / SML RX)
+GPIO14 I/O        Frei
+GPIO15 I/O        Strapping-Pin: Boot-Modus (muss HIGH beim Boot)
+GPIO16 I/O        Frei
+GPIO17 I/O        Frei
+GPIO32 I/O        ADC1, Touch – auf Board beschriftet als "CFG"
+GPIO33 I/O        ADC1, Touch – auf Board beschriftet als "485_EN"
+GPIO34 INPUT NUR  ADC1 – KEIN Ausgang, KEIN Pull-Up
+GPIO35 INPUT NUR  ADC1 – KEIN Ausgang, KEIN Pull-Up
+GPIO36 INPUT NUR  ADC1 (VP) – KEIN Ausgang
+GPIO39 INPUT NUR  ADC1 (VN) – KEIN Ausgang
+
+================================================================================
+STRAPPING PINS (Beim Boot beachten!)
+================================================================================
+GPIO0  : Wird durch 50 MHz Oszillator auf HIGH gezogen
+         → Flash-Modus: GPIO0 beim Reset auf LOW ziehen (Taster)
+GPIO2  : Boot-Modus
+GPIO12 : VDD_SDIO (1.8V/3.3V) – muss LOW bleiben für 3.3V Flash
+GPIO15 : UART0 Logging – muss HIGH beim Boot
+
+FLASH PINS: GPIO6-11 (intern, NICHT verwenden)
+
+================================================================================
+EMPFOHLENE PIN-ZUWEISUNG FÜR SML-DISPLAY PROJEKT
+================================================================================
+
+Nokia 5110 Display (SPI):
+  CLK  -> GPIO14
+  DIN  -> GPIO15
+  D/C  -> GPIO32  (auf Board: "CFG")
+  CE   -> GPIO33  (auf Board: "485_EN")
+  RST  -> GPIO12
+  BL   -> GPIO5 (PWM für Helligkeit)
+
+IR-Lesekopf SML (UART2):
+  RX   -> GPIO13 (Lesekopf TX -> ESP32 RX)
+  TX   -> GPIO4  (Lesekopf RX <- ESP32 TX, optional)
+
+Taster (optional für Display-Wechsel):
+  Taster -> GPIO34 (input-only, gegen GND schalten)
+
+USB/Debug UART (UART0, CP2104):
+  TXD  -> GPIO1 (zum PC)
+  RXD  -> GPIO3 (vom PC)
+
+================================================================================
+SCHALTPLAN-ÜBERSICHT
+================================================================================
+
+┌─────────────────────────────┐          ┌─────────────────────────┐
+│     WT32-ETH01 V1.4         │          │   Nokia 5110 Display    │
+│                             │          │                         │
+│  3.3V ───────────────────────────────── VCC                      │
+│  GND  ───────────────────────────────── GND                      │
+│  GPIO14 ─────────────────────────────── SCLK                     │
+│  GPIO15 ─────────────────────────────── DIN                      │
+│  GPIO32 ─────────────────────────────── D/C                      │
+│  GPIO33 ─────────────────────────────── CE                       │
+│  GPIO12 ─────────────────────────────── RST                      │
+│  GPIO5  ─────────────────────────────── BL (330Ω)               │
+│                             │          └─────────────────────────┘
+│  RJ45 Buchse                │
+│  (LAN8720A)                 │          ┌─────────────────────────┐
+│  TX+/TX-  ──────────────────┤          │   IR-Lesekopf (TTL)     │
+│  RX+/RX-  ──────────────────┤          │                         │
+│  Intern: GPIO0,18,19,       │          │  TX ────→ GPIO13 (RX)   │
+│  21,22,23,25,26,27          │          │  RX ←──── GPIO4  (TX)   │
+│                             │          │  VCC → 3.3V oder 5V     │
+│  GPIO1 ─── CP2104 ─── USB   │          │  GND → GND              │
+│  GPIO3 ─── CP2104 ─── USB   │          └─────────────────────────┘
+│  (Debug/Flash)              │
+│                             │          ┌─────────────────────────┐
+│  GPIO34 ─── Taster ─── GND  │          │   Taster (optional)     │
+│                             │          │   GPIO34 ─── T ─── GND  │
+└─────────────────────────────┘          └─────────────────────────┘
+
+================================================================================
+INITIALISIERUNG
+================================================================================
+
+Ethernet (LAN):
+  #include <ETH.h>
+  ETH.begin(1, -1, 23, 18, ETH_PHY_LAN8720, ETH_CLOCK_GPIO0_IN);
+  // Warte auf ARDUINO_EVENT_ETH_GOT_IP
+
+WLAN (STA):
+  WiFi.begin(ssid, password);
+  // Warte auf WL_CONNECTED
+
+WLAN (AP – Fallback):
+  WiFi.softAP("SML-Display", "12345678");
+  WiFi.softAPConfig(IPAddress(192,168,4,1), ...);
+
+UART2 (SML Lesekopf):
+  Serial2.begin(9600, SERIAL_8N1, 13, 4);  // RX=GPIO13, TX=GPIO4
