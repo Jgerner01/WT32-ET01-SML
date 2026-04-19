@@ -26,6 +26,7 @@
 // Forward declarations
 void startWifiSta();
 void onMqttTest();
+void onMqttStatusChange(bool connected);
 
 // ============================================================
 // GLOBALE OBJEKTE
@@ -46,6 +47,7 @@ static NetworkConfig networkConfig;
 static bool ethConnected = false;
 static bool wifiConnected = false;
 static unsigned long lastMqttPublish = 0;
+static unsigned long lastDiagPublish = 0;
 static String currentIp;
 static bool mqttReady = false;
 
@@ -122,6 +124,7 @@ void onMqttSave(const MqttConfig& config) {
     configMgr.saveMqttConfig(config);
     mqttConfig = config;
     if (config.enabled && strlen(config.broker) > 0) {
+        mqttClient.setStatusCallback(onMqttStatusChange);
         mqttClient.begin(mqttConfig);
     } else {
         mqttClient.disconnect();
@@ -247,11 +250,16 @@ void setupArduinoOta() {
 // ============================================================
 
 void setupButton() {
+#if PIN_BUTTON_ENABLED
     pinMode(PIN_BUTTON, INPUT);
     DEBUG_PRINTLN("[Button] Taster an GPIO" + String(PIN_BUTTON));
+#else
+    DEBUG_PRINTLN("[Button] Taster deaktiviert (PIN_BUTTON_ENABLED=0)");
+#endif
 }
 
 void checkButton() {
+#if PIN_BUTTON_ENABLED
     int state = digitalRead(PIN_BUTTON);
     if (state == HIGH) {
         if (millis() - lastButtonPress > 3000 && !buttonLongPress) {
@@ -265,6 +273,7 @@ void checkButton() {
         lastButtonPress = millis();
         buttonLongPress = false;
     }
+#endif
 }
 
 // ============================================================
@@ -278,6 +287,11 @@ void checkMqttPublish() {
         const SmlData& d = smlReader.getData();
         if (d.isValid) mqttClient.publishSmlData(d);
         lastMqttPublish = millis();
+    }
+    // Diagnosewerte alle 60 Sekunden
+    if (millis() - lastDiagPublish >= 60000) {
+        mqttClient.publishDiagnostics(currentIp, wifiConnected);
+        lastDiagPublish = millis();
     }
 }
 
@@ -319,7 +333,7 @@ void setup() {
     startEthernet();
 
     // 2. Webserver starten (immer verfügbar)
-    webServer.begin(&smlReader.getData());
+    webServer.begin(&smlReader);
     webServer.setWifiSaveCallback(onWifiSave);
     webServer.setMqttSaveCallback(onMqttSave);
     webServer.setNetworkSaveCallback(onNetworkSave);
@@ -341,7 +355,13 @@ void setup() {
     // 4. ArduinoOTA
     setupArduinoOta();
 
-    // 5. MQTT (später starten wenn Netzwerk da)
+    // 5. MQTT initialisieren (Verbindung wird im loop hergestellt sobald Netzwerk da)
+    mqttClient.setStatusCallback(onMqttStatusChange);
+    if (mqttConfig.enabled && strlen(mqttConfig.broker) > 0) {
+        mqttClient.begin(mqttConfig);
+        DEBUG_PRINTLN("[MQTT] Initialisiert");
+    }
+
     DEBUG_PRINTLN("[Setup] Fertig!\n");
 }
 
@@ -358,7 +378,7 @@ void loop() {
 
     // 2. WebServer
     webServer.loop();
-    webServer.setSmlData(&smlReader.getData());
+    webServer.setSmlReader(&smlReader);
     webServer.setNetworkStatus(ethConnected, wifiConnected, mqttReady);
 
     // 3. Display
@@ -374,6 +394,7 @@ void loop() {
     // 5. MQTT
     if (mqttConfig.enabled) {
         mqttClient.loop();
+        mqttReady = mqttClient.isConnected();
         checkMqttPublish();
     }
 

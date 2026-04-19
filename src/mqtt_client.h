@@ -12,7 +12,6 @@
 #include "config_manager.h"
 #include "sml_reader.h"
 
-// Callback-Typen
 typedef void (*MqttStatusCallback)(bool connected);
 
 class MqttClientManager {
@@ -20,48 +19,21 @@ public:
     MqttClientManager();
     ~MqttClientManager();
 
-    /**
-     * Initialisiert den MQTT-Client
-     * @param config MQTT-Konfiguration
-     * @return true wenn erfolgreich initialisiert
-     */
     bool begin(const MqttConfig& config);
-
-    /**
-     * Muss regelmäßig aufgerufen werden (hält die Verbindung aufrecht)
-     */
     void loop();
 
-    /**
-     * Veröffentlicht alle SML-Daten als MQTT-Nachrichten
-     * @param smlData Aktuelle SML-Daten
-     */
+    // Publiziert alle SML-Messwerte; sendet OBIS-Discovery dynamisch bei neuen Codes
     void publishSmlData(const SmlData& smlData);
 
-    /**
-     * Sendet Home Assistant Auto-Discovery Konfiguration
-     */
+    // Publiziert Diagnosewerte (IP, RSSI, Heap, Uptime)
+    void publishDiagnostics(const String& ipAddress, bool wifiConnected);
+
+    // Sendet Home Assistant Auto-Discovery (Diagnose-Sensoren)
     void sendDiscoveryConfig();
 
-    /**
-     * Testet die MQTT-Verbindung
-     * @return true wenn Verbindung erfolgreich
-     */
     bool testConnection();
-
-    /**
-     * Gibt den Verbindungsstatus zurück
-     */
     bool isConnected() const;
-
-    /**
-     * Setzt Callback für Statusänderungen
-     */
     void setStatusCallback(MqttStatusCallback callback);
-
-    /**
-     * Trennt die MQTT-Verbindung
-     */
     void disconnect();
 
 private:
@@ -71,19 +43,22 @@ private:
     MqttStatusCallback statusCb;
     bool connected;
     unsigned long lastPublish;
-    bool discoverySent;
+    unsigned long lastReconnect;
+    bool diagnosticDiscoverySent;
 
-    /**
-     * Stellt Verbindung zum Broker her
-     */
+    // Dynamisches OBIS-Discovery-Tracking
+    char discoveredObisCodes[SML_MAX_OBIS_VALUES][MAX_OBIS_CODE_LEN];
+    int discoveredObisCount;
+
     bool connect();
-
-    /**
-     * Sendet Discovery für einen einzelnen Sensor
-     */
-    void sendSensorDiscovery(const char* sensorId, const char* name, 
-                              const char* deviceClass, const char* stateClass,
-                              const char* unit);
+    void sendDiagnosticDiscovery();
+    void sendDiagnosticSensor(const char* sensorId, const char* name,
+                               const char* deviceClass, const char* stateClass,
+                               const char* unit);
+    void checkObisDiscovery(const SmlData& smlData);
+    void sendObisDiscovery(const char* obisCode, const char* unit);
+    bool isObisDiscovered(const char* obisCode) const;
+    void markObisDiscovered(const char* obisCode);
 };
 
 #endif // MQTT_CLIENT_WRAPPER_H

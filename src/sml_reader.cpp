@@ -12,9 +12,10 @@ static SmlReader* g_smlReaderInstance = nullptr;
 // Externe SML Parser Callbacks (aus libsml)
 // Wir implementieren einen einfachen eigenen Parser da libsml komplex ist
 
-SmlReader::SmlReader() 
-    : smlSerial(nullptr), bufferPos(0) {
+SmlReader::SmlReader()
+    : smlSerial(nullptr), bufferPos(0), lastRawLen(0), totalBytesReceived(0) {
     memset(&smlData, 0, sizeof(SmlData));
+    memset(lastRawMsg, 0, sizeof(lastRawMsg));
     smlData.valueCount = 0;
     smlData.isValid = false;
     g_smlReaderInstance = this;
@@ -43,6 +44,7 @@ bool SmlReader::update() {
     while (smlSerial->available()) {
         if (bufferPos < SML_RX_BUFFER_SIZE) {
             rxBuffer[bufferPos++] = smlSerial->read();
+            totalBytesReceived++;
         } else {
             // Buffer voll, zurücksetzen
             bufferPos = 0;
@@ -59,6 +61,11 @@ bool SmlReader::update() {
                 rxBuffer[bufferPos-6] == 0x1B &&
                 rxBuffer[bufferPos-5] == 0x1B &&
                 rxBuffer[bufferPos-4] == 0x1A) {  // Ende-Marker: 1A = end-of-message
+
+                // Raw-Buffer für Debug sichern
+                int copyLen = min(bufferPos, SML_RX_BUFFER_SIZE);
+                memcpy(lastRawMsg, rxBuffer, copyLen);
+                lastRawLen = copyLen;
 
                 // Nachricht parsen
                 if (parseSmlMessage(rxBuffer, bufferPos)) {
@@ -142,10 +149,20 @@ void SmlReader::printDebug() const {
  *
  * Gibt false zurück wenn die Grenze überschritten wird.
  */
-static bool smlSkipField(const uint8_t* buffer, int& pos, int endLimit) {
-    if (pos >= endLimit) return false;
+static bool smlSkipField(const uint8_t* buffer, int& pos, int endLimit, int depth = 0) {
+    if (pos >= endLimit || depth > 10) return false;
     uint8_t tag = buffer[pos];
     if (tag == 0x01) { pos += 1; return true; }    // optional/absent
+    if ((tag & 0xF0) == 0x70) {
+        // List type: lower nibble = number of child entries
+        uint8_t count = tag & 0x0F;
+        pos += 1;
+        for (int i = 0; i < count; i++) {
+            if (!smlSkipField(buffer, pos, endLimit, depth + 1)) return false;
+        }
+        return true;
+    }
+    // Primitive type: lower nibble = total length incl. type byte
     uint8_t len = tag & 0x0F;
     if (len == 0 || pos + len > endLimit) return false;
     pos += len;
@@ -227,13 +244,13 @@ bool SmlReader::parseSmlMessage(const uint8_t* buffer, int length) {
         uint8_t dataLen    = (valTotalLen > 0) ? (valTotalLen - 1) : 0;
 
         if ((valType == 0x50 || valType == 0x60) &&
-            dataLen > 0 && dataLen <= 4 &&
+            dataLen > 0 && dataLen <= 8 &&
             p + valTotalLen <= endLimit) {
 
             // Integer big-endian lesen; bei signed: Vorzeichen erweitern
-            int32_t intValue = 0;
+            int64_t intValue = 0;
             if (valType == 0x50 && (buffer[p + 1] & 0x80)) {
-                intValue = -1;  // Vorzeichen-Extension (0xFFFFFFFF)
+                intValue = -1LL;  // Vorzeichen-Extension (0xFFFFFFFFFFFFFFFF)
             }
             for (int b = 0; b < (int)dataLen; b++) {
                 intValue = (intValue << 8) | buffer[p + 1 + b];

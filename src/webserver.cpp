@@ -12,7 +12,7 @@ static const char* HTML_HEAD =
 "<style>body{font-family:system-ui,sans-serif;margin:0;padding:15px;background:#f0f2f5;color:#333}"
 "h1{text-align:center;color:#1a73e8;margin:10px 0}h2{color:#555;font-size:1.1em;border-bottom:2px solid #1a73e8;padding-bottom:4px}"
 ".card{background:#fff;border-radius:12px;padding:16px;margin:12px 0;box-shadow:0 2px 8px rgba(0,0,0,0.1)}"
-".btn{display:block;width:100%;padding:12px;background:#1a73e8;color:#fff;border:none;border-radius:8px;font-size:1em;cursor:pointer;text-align:center;text-decoration:none;margin:8px 0}"
+".btn{display:block;width:100%;padding:12px;background:#1a73e8;color:#fff;border:none;border-radius:8px;font-size:1em;cursor:pointer;text-align:center;text-decoration:none;margin:8px 0;box-sizing:border-box}"
 ".btn:hover{background:#1557b0}.btn.green{background:#0d904f}.btn.green:hover{background:#0a7040}"
 ".btn.red{background:#c5221f}.btn.red:hover{background:#a11d18}"
 ".net{padding:10px;margin:4px 0;background:#f8f9fa;border-radius:8px;cursor:pointer;border:1px solid #ddd}"
@@ -35,7 +35,7 @@ static const char* HTML_FOOTER = "</body></html>";
 
 WebServerManager::WebServerManager()
     : server(nullptr), dnsServer(nullptr), apMode(false), staConnected(false),
-      wifiDisabled(false), hasLan(false), smlDataRef(nullptr),
+      wifiDisabled(false), hasLan(false), hasMqtt(false), smlReaderRef(nullptr),
       wifiSaveCb(nullptr), mqttSaveCb(nullptr), netSaveCb(nullptr),
       mqttTestCb(nullptr), displayCb(nullptr),
       connectStartTime(0), lastClientCheck(0), scrollPos(0) {}
@@ -45,8 +45,8 @@ WebServerManager::~WebServerManager() {
     if (dnsServer) { dnsServer->stop(); delete dnsServer; dnsServer = nullptr; }
 }
 
-bool WebServerManager::begin(const SmlData* smlData) {
-    smlDataRef = smlData;
+bool WebServerManager::begin(const SmlReader* smlReader) {
+    smlReaderRef = smlReader;
     connectStartTime = millis();
     server = new WiFiServer(80);
     server->begin();
@@ -62,6 +62,7 @@ void WebServerManager::setDisplayCallback(void (*cb)(const String&)) { displayCb
 void WebServerManager::setNetworkStatus(bool lan, bool wifi, bool mqtt) {
     hasLan = lan;
     staConnected = wifi;
+    hasMqtt = mqtt;
     wifiDisabled = false; // wird extern gesetzt
 }
 
@@ -183,6 +184,7 @@ void WebServerManager::parseRequest(WiFiClient& client) {
     else if (path == "/reboot") handleReboot(client);
     else if (path == "/ota") handleOta(client);
     else if (path == "/api/data") handleApiData(client);
+    else if (path == "/api/debug") handleApiDebug(client);
     else if (apMode) handleRoot(client);  // Captive Portal
     else handleRoot(client);
 }
@@ -195,38 +197,92 @@ void WebServerManager::handleRoot(WiFiClient& client) {
     String html = HTML_HEAD;
     html += "<h1>SML-Display Dashboard</h1>";
 
-    // Verbindungsstatus
-    html += "<div class='card'><h2>Status</h2>";
-    if (hasLan) html += "<div class='data-row'><span>LAN:</span><span class='status ok'>Verbunden (" + ETH.localIP().toString() + ")</span></div>";
-    else html += "<div class='data-row'><span>LAN:</span><span class='status err'>Nicht verbunden</span></div>";
+    // Status-Karte (initial server-seitig gerendert, dann via JS aktualisiert)
+    html += "<div class='card'><h2>Status <small id='dot' style='font-size:0.7em;color:#888'></small></h2>";
+    html += "<div id='statusContent'>";
+    if (hasLan)       html += "<div class='data-row'><span>LAN:</span><span class='status ok'>Verbunden (" + ETH.localIP().toString() + ")</span></div>";
+    else              html += "<div class='data-row'><span>LAN:</span><span class='status err'>Nicht verbunden</span></div>";
     if (staConnected) html += "<div class='data-row'><span>WiFi:</span><span class='status ok'>Verbunden (" + WiFi.localIP().toString() + ")</span></div>";
     else if (wifiDisabled) html += "<div class='data-row'><span>WiFi:</span><span class='status err'>Deaktiviert</span></div>";
-    else if (apMode) html += "<div class='data-row'><span>WiFi:</span><span class='status ok'>AP-Mode (192.168.4.1)</span></div>";
-    else html += "<div class='data-row'><span>WiFi:</span><span class='status err'>Nicht verbunden</span></div>";
+    else if (apMode)  html += "<div class='data-row'><span>WiFi:</span><span class='status ok'>AP-Mode (192.168.4.1)</span></div>";
+    else              html += "<div class='data-row'><span>WiFi:</span><span class='status err'>Nicht verbunden</span></div>";
+    html += "</div></div>";
 
+    // Messwert-Karte
+    html += "<div class='card'>";
+    html += "<h2>Messwerte <small id='ts' style='font-size:0.7em;color:#888'></small></h2>";
+    html += "<div id='valuesContent'><p style='color:#888'>Lade...</p></div>";
     html += "</div>";
 
-    // AP-Fallback Countdown
-    if (!hasLan && !staConnected && !apMode && !wifiDisabled) {
-        uint32_t remaining = (AP_FALLBACK_TIMEOUT_MS - (millis() - connectStartTime)) / 60000;
-        html += "<div class='card'><p>AP-Mode startet in: <strong>" + String(remaining) + " min</strong></p></div>";
-    }
-
-    // SML Daten
-    if (smlDataRef && smlDataRef->isValid) {
-        html += "<div class='card'><h2>Messwerte</h2>";
-        for (int i = 0; i < smlDataRef->valueCount && i < 8; i++) {
-            html += "<div class='data-row'><span>" + String(smlDataRef->values[i].obisCode) + "</span>";
-            html += "<span>" + String(smlDataRef->values[i].value, 3) + " " + String(smlDataRef->values[i].unit) + "</span></div>";
-        }
-        html += "</div>";
-    } else {
-        html += "<div class='card'><p>Warte auf SML-Daten...</p></div>";
-    }
+    // Debug-Fenster
+    html += "<details class='card' id='dbg'><summary style='cursor:pointer;font-weight:bold'>&#x1F50D; SML Debug (Raw-Frame)</summary>";
+    html += "<div id='dbgContent' style='margin-top:8px'><p>Lade...</p></div>";
+    html += "<button class='btn' style='margin-top:8px' onclick='loadDebug()'>&#x21BB; Aktualisieren</button>";
+    html += "</details>";
 
     html += "<div class='card'><a class='btn green' href='/reboot'>&#x21BB; Neustart</a></div>";
-    html += HTML_FOOTER;
 
+    // JavaScript: Live-Update alle 2 Sekunden
+    html += "<script>";
+
+    // Hilfsfunktion: Status-Zeile bauen
+    html += "function row(label,ok,txt){return \"<div class='data-row'><span>\"+label+\":</span><span class='status \"+(ok?'ok':'err')+\"'>\"+txt+\"</span></div>\";}";
+
+    // Dashboard-Update
+    html += "function update(){";
+    html += "fetch('/api/data').then(function(r){return r.json();}).then(function(d){";
+
+    // Status aktualisieren
+    html += "var s='';";
+    html += "s+=row('LAN',d.lan,d.lan?('Verbunden ('+d.lanIp+')'):'Nicht verbunden');";
+    html += "if(d.wifi)s+=row('WiFi',true,'Verbunden ('+d.ip+')');";
+    html += "else if(d.ap)s+=row('WiFi',true,'AP-Mode (192.168.4.1)');";
+    html += "else s+=row('WiFi',false,'Nicht verbunden');";
+    html += "s+=row('MQTT',d.mqtt!==undefined?d.mqtt:false,d.mqtt?'Verbunden':'Nicht verbunden');";
+    html += "document.getElementById('statusContent').innerHTML=s;";
+
+    // Uptime als Zeitstempel
+    html += "var u=d.uptime,h=Math.floor(u/3600),m=Math.floor((u%3600)/60),sec=u%60;";
+    html += "document.getElementById('dot').textContent='Uptime: '+h+'h '+m+'m '+sec+'s | Heap: '+Math.round(d.freeHeap/1024)+'kB';";
+
+    // Messwerte aktualisieren
+    html += "var v='';";
+    html += "if(d.valid&&d.values&&d.values.length){";
+    html += "v='<table style=\"width:100%;border-collapse:collapse\">';";
+    html += "d.values.forEach(function(x){";
+    html += "v+=\"<div class='data-row'><span>\"+x.obis+\"</span><span>\"+x.value.toFixed(3)+' '+x.unit+\"</span></div>\";";
+    html += "});";
+    html += "}else{v='<p style=\"color:#888\">Warte auf SML-Daten...</p>';}";
+    html += "document.getElementById('valuesContent').innerHTML=v;";
+
+    // Zeitstempel
+    html += "var now=new Date();";
+    html += "document.getElementById('ts').textContent='Stand: '+now.toLocaleTimeString();";
+
+    html += "}).catch(function(){});";
+    html += "}";
+
+    // Debug-Fenster
+    html += "function loadDebug(){";
+    html += "fetch('/api/debug').then(r=>r.json()).then(d=>{";
+    html += "var h='<p><b>Bytes empfangen:</b> '+d.totalBytes+'</p>';";
+    html += "h+='<p><b>Frame-Gr&ouml;&szlig;e:</b> '+d.rawLen+' Bytes | <b>Letzte Nachricht:</b> '+(d.lastUpdate/1000).toFixed(1)+' s</p>';";
+    html += "h+='<p><b>Parsed Values:</b> '+d.valueCount+'</p>';";
+    html += "h+='<details><summary>Hex-Dump</summary><pre style=\"font-size:0.75em;overflow-x:auto;white-space:pre-wrap;word-break:break-all\">'+d.rawHex+'</pre></details>';";
+    html += "if(d.values&&d.values.length){";
+    html += "h+='<table style=\"width:100%;border-collapse:collapse;font-size:0.9em\">';";
+    html += "h+='<tr><th style=\"text-align:left;border-bottom:1px solid #ddd\">OBIS</th><th style=\"text-align:right;border-bottom:1px solid #ddd\">Wert</th><th style=\"text-align:right;border-bottom:1px solid #ddd\">Einheit</th></tr>';";
+    html += "d.values.forEach(function(v){h+='<tr><td>'+v.obis+'</td><td style=\"text-align:right\">'+v.value.toFixed(3)+'</td><td style=\"text-align:right\">'+v.unit+'</td></tr>';});";
+    html += "h+='</table>';}";
+    html += "document.getElementById('dbgContent').innerHTML=h;";
+    html += "}).catch(function(){document.getElementById('dbgContent').innerHTML='<p class=\"err\">Fehler</p>';});}";
+    html += "document.getElementById('dbg').addEventListener('toggle',function(){if(this.open)loadDebug();});";
+
+    // Sofort starten und dann alle 2 Sekunden
+    html += "update();setInterval(update,2000);";
+    html += "</script>";
+
+    html += HTML_FOOTER;
     String resp = "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nConnection: close\r\n\r\n";
     resp += html; client.print(resp);
 }
@@ -407,12 +463,14 @@ void WebServerManager::handleReboot(WiFiClient& client) {
 }
 
 void WebServerManager::handleApiData(WiFiClient& client) {
+    const SmlData* smlDataRef = smlReaderRef ? &smlReaderRef->getData() : nullptr;
     JsonDocument doc;
     doc["lan"] = hasLan;
     doc["lanIp"] = hasLan ? ETH.localIP().toString() : "";
     doc["wifi"] = staConnected;
     doc["ap"] = apMode;
     doc["ip"] = getIp();
+    doc["mqtt"] = hasMqtt;
     if (smlDataRef && smlDataRef->isValid) {
         doc["valid"] = true;
         doc["lastUpdate"] = smlDataRef->lastMessageTime;
@@ -428,6 +486,48 @@ void WebServerManager::handleApiData(WiFiClient& client) {
     doc["freeHeap"] = ESP.getFreeHeap();
     String out; serializeJson(doc, out);
     String resp = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n";
+    resp += out; client.print(resp);
+}
+
+void WebServerManager::handleApiDebug(WiFiClient& client) {
+    const SmlData* smlDataRef = smlReaderRef ? &smlReaderRef->getData() : nullptr;
+    JsonDocument doc;
+
+    // Hex-Dump des letzten Raw-Frames
+    if (smlReaderRef && smlReaderRef->getRawLen() > 0) {
+        int rawLen = smlReaderRef->getRawLen();
+        const uint8_t* raw = smlReaderRef->getRawBuffer();
+        String hex;
+        hex.reserve(rawLen * 3);
+        for (int i = 0; i < rawLen; i++) {
+            char buf[4];
+            snprintf(buf, sizeof(buf), "%02X", raw[i]);
+            hex += buf;
+            hex += ((i % 16 == 15) ? "\n" : " ");
+        }
+        doc["rawHex"] = hex;
+        doc["rawLen"] = rawLen;
+    } else {
+        doc["rawHex"] = "";
+        doc["rawLen"] = 0;
+    }
+
+    doc["totalBytes"] = smlReaderRef ? (unsigned long)smlReaderRef->getTotalBytesReceived() : 0UL;
+    doc["lastUpdate"] = smlDataRef ? smlDataRef->lastMessageTime : 0UL;
+    doc["valueCount"] = smlDataRef ? smlDataRef->valueCount : 0;
+
+    if (smlDataRef) {
+        JsonArray values = doc["values"].to<JsonArray>();
+        for (int i = 0; i < smlDataRef->valueCount; i++) {
+            JsonObject v = values.add<JsonObject>();
+            v["obis"] = smlDataRef->values[i].obisCode;
+            v["value"] = smlDataRef->values[i].value;
+            v["unit"] = smlDataRef->values[i].unit;
+        }
+    }
+
+    String out; serializeJson(doc, out);
+    String resp = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nAccess-Control-Allow-Origin: *\r\nConnection: close\r\n\r\n";
     resp += out; client.print(resp);
 }
 

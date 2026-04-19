@@ -3,6 +3,7 @@
  */
 #include "display.h"
 #include <Arduino.h>
+#include <Fonts/TomThumb.h>
 
 #define LEDC_CHANNEL      1
 #define LEDC_FREQ         1000
@@ -62,8 +63,10 @@ void DisplayManager::update(const SmlData& smlData) {
     display->clearDisplay();
     display->setTextSize(1);
     display->setTextColor(BLACK);
-    drawStatusBar();
+    drawStatusBar();  // Default-Font: Marquee + Icons
 
+    // Seiteninhalt mit TomThumb (kleinere Schrift, baseline-basiert)
+    display->setFont(&TomThumb);
     if (!smlData.isValid) {
         drawNoData();
     } else {
@@ -73,6 +76,7 @@ void DisplayManager::update(const SmlData& smlData) {
             case DISPLAY_PAGE_3: drawPage3(smlData); break;
         }
     }
+    display->setFont(nullptr);  // zurück auf Default für nächsten Zyklus
     display->display();
 }
 
@@ -169,14 +173,14 @@ void DisplayManager::drawPage1(const SmlData& smlData) {
             strcmp(smlData.values[i].obisCode, "1-0:2.8.0*255") == 0)
             exportVal = &smlData.values[i];
     }
-    display->setCursor(2, 12); display->print("Bezug:");
-    display->setCursor(2, 22);
-    if (importVal) { display->print(importVal->value, 3); display->print(" kWh"); }
-    else display->print("---.--- kWh");
-    display->setCursor(2, 32); display->print("Lief.:");
-    display->setCursor(2, 42);
-    if (exportVal) { display->print(exportVal->value, 3); display->print(" kWh"); }
-    else display->print("---.--- kWh");
+    display->setCursor(2, 16); display->print("Bezug [kWh]:");
+    display->setCursor(2, 25);
+    if (importVal) display->print(importVal->value, 3);
+    else           display->print("---.---");
+    display->setCursor(2, 35); display->print("Einspeisung:");
+    display->setCursor(2, 44);
+    if (exportVal) display->print(exportVal->value, 3);
+    else           display->print("---.---");
 }
 
 void DisplayManager::drawPage2(const SmlData& smlData) {
@@ -194,15 +198,18 @@ void DisplayManager::drawPage2(const SmlData& smlData) {
         if (strcmp(smlData.values[i].obisCode, "1-0:76.7.0") == 0 ||
             strcmp(smlData.values[i].obisCode, "1-0:76.7.0*255") == 0) powerL3 = &smlData.values[i];
     }
-    display->setCursor(2, 12); display->print("Leistung:");
-    display->setCursor(2, 22);
-    if (power) { display->print(power->value, 0); display->print(" W");
-        if (power->value < 0) display->print("<"); }
-    else display->print("--- W");
-    display->setCursor(2, 32); display->print("L1:");
-    if (powerL1) { display->print(powerL1->value, 0); display->print("W"); } else display->print("---W");
-    display->setCursor(2, 42); display->print("L2:");
-    if (powerL2) { display->print(powerL2->value, 0); display->print("W"); } else display->print("---W");
+    display->setCursor(2, 16); display->print("Leistung [W]:");
+    display->setCursor(2, 25);
+    if (power) display->print(power->value, 0);
+    else       display->print("---");
+
+    display->setCursor(2, 35); display->print("L1 / L2 / L3:");
+    display->setCursor(2, 44);
+    if (powerL1) display->print((int)powerL1->value); else display->print("---");
+    display->print(" ");
+    if (powerL2) display->print((int)powerL2->value); else display->print("---");
+    display->print(" ");
+    if (powerL3) display->print((int)powerL3->value); else display->print("---");
 }
 
 void DisplayManager::drawPage3(const SmlData& smlData) {
@@ -216,20 +223,29 @@ void DisplayManager::drawPage3(const SmlData& smlData) {
         if (strcmp(smlData.values[i].obisCode,"1-0:51.7.0")==0||strcmp(smlData.values[i].obisCode,"1-0:51.7.0*255")==0) currL2=&smlData.values[i];
         if (strcmp(smlData.values[i].obisCode,"1-0:71.7.0")==0||strcmp(smlData.values[i].obisCode,"1-0:71.7.0*255")==0) currL3=&smlData.values[i];
     }
-    display->setCursor(2, 12); display->print("U L1:");
-    if (voltL1) { display->print(voltL1->value,1); display->print("V"); } else display->print("---.-V");
-    display->setCursor(2, 22); display->print("U L2:");
-    if (voltL2) { display->print(voltL2->value,1); display->print("V"); } else display->print("---.-V");
-    display->setCursor(2, 32); display->print("U L3:");
-    if (voltL3) { display->print(voltL3->value,1); display->print("V"); } else display->print("---.-V");
-    display->setCursor(2, 42); display->print("I:");
-    if (currL1) { display->print(currL1->value,2); display->print("A"); } else display->print("---.--A");
+    display->setCursor(2, 16); display->print("Spannung L1/2/3:");
+    display->setCursor(2, 25);
+    if (voltL1) display->print(voltL1->value, 0); else display->print("---");
+    display->print(" ");
+    if (voltL2) display->print(voltL2->value, 0); else display->print("---");
+    display->print(" ");
+    if (voltL3) display->print(voltL3->value, 0); else display->print("---");
+    display->print("V");
+
+    display->setCursor(2, 35); display->print("Strom L1/2/3:");
+    display->setCursor(2, 44);
+    if (currL1) display->print(currL1->value, 1); else display->print("--.-");
+    display->print(" ");
+    if (currL2) display->print(currL2->value, 1); else display->print("--.-");
+    display->print(" ");
+    if (currL3) display->print(currL3->value, 1); else display->print("--.-");
+    display->print("A");
 }
 
 void DisplayManager::drawNoData() {
-    display->setCursor(5, 18); display->print("Warte auf");
-    display->setCursor(5, 28); display->print("SML-Daten...");
-    display->setCursor(5, 40); display->print("IR-Kopf pruefen");
+    display->setCursor(5, 22); display->print("Warte auf");
+    display->setCursor(5, 32); display->print("SML-Daten...");
+    display->setCursor(5, 42); display->print("IR-Kopf pruefen");
 }
 
 void DisplayManager::drawValue(int x, int y, float value, const char* unit, int decimals) {

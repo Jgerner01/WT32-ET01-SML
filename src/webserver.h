@@ -22,7 +22,7 @@ public:
     WebServerManager();
     ~WebServerManager();
 
-    bool begin(const SmlData* smlData);
+    bool begin(const SmlReader* smlReader);
     void loop();
     void setWifiSaveCallback(WifiSaveCallback cb);
     void setMqttSaveCallback(MqttSaveCallback cb);
@@ -30,7 +30,7 @@ public:
     void setMqttTestCallback(MqttTestCallback cb);
     void setDisplayCallback(void (*cb)(const String& ip));
     void setNetworkStatus(bool hasLan, bool hasWifi, bool hasMqtt);
-    void setSmlData(const SmlData* data) { smlDataRef = data; }
+    void setSmlReader(const SmlReader* r) { smlReaderRef = r; }
 
     bool isApMode() const { return apMode; }
     bool isConnected() const { return !apMode && staConnected; }
@@ -44,7 +44,8 @@ private:
     bool staConnected;
     bool wifiDisabled;        // WLAN explizit deaktiviert
     bool hasLan;              // LAN aktiv
-    const SmlData* smlDataRef;
+    bool hasMqtt;             // MQTT verbunden
+    const SmlReader* smlReaderRef;
     WifiSaveCallback wifiSaveCb;
     MqttSaveCallback mqttSaveCb;
     NetworkSaveCallback netSaveCb;
@@ -72,6 +73,7 @@ private:
     void handleStatus(WiFiClient& client);
     void handleReboot(WiFiClient& client);
     void handleApiData(WiFiClient& client);
+    void handleApiDebug(WiFiClient& client);
     void handleOta(WiFiClient& client);
     void handleOtaUpload(WiFiClient& client, const String& contentType, int contentLength);
     String getRequestParam(const String& request, const char* param);

@@ -35,12 +35,13 @@
 #define PIN_DISPLAY_BL      5      // Frei nutzbar (PWM)
 
 // IR-Lesekopf SML (UART2)
-#define PIN_SML_RX          13     // GPIO13 (frei)
-#define PIN_SML_TX          4      // GPIO4  (frei)
+#define PIN_SML_RX          4      // GPIO4 (frei)
+#define PIN_SML_TX          2      // GPIO2  (frei)
 #define SML_BAUD_RATE       9600   // SML Standard-Baudrate
 
 // Taster (optional, manueller Display-Wechsel)
 #define PIN_BUTTON          34     // Input-only Pin, kein Pull-Up nötig
+#define PIN_BUTTON_ENABLED  0      // 0 = deaktiviert (noch nicht bestückt)
 
 // ============================================================
 // SML PROTOKOLL KONSTANTEN
@@ -69,7 +70,7 @@
 // ============================================================
 
 #define DISPLAY_CONTRAST        0x41   // Kontrastwert (65 dezimal)
-#define DISPLAY_PAGE_INTERVAL   5000   // 5 Sekunden pro Seite
+#define DISPLAY_PAGE_INTERVAL   10000  // 10 Sekunden pro Seite
 #define DISPLAY_BRIGHTNESS      128    // PWM Helligkeit (0-255)
 
 #define DISPLAY_PAGE_COUNT      3
@@ -107,7 +108,7 @@
 #define MQTT_PUBLISH_INTERVAL   1000   // 1 Sekunde
 #define MQTT_RECONNECT_INTERVAL 5000
 #define MQTT_QOS                0
-#define MQTT_RETAIN             false
+#define MQTT_RETAIN             true
 
 #define MQTT_TOPIC_PREFIX       "sml_meter"
 #define MQTT_TOPIC_BASE         MQTT_TOPIC_PREFIX "/sensors"

@@ -37,11 +37,18 @@ public:
     float getExportTotal() const;
     void printDebug() const;
 
+    const uint8_t* getRawBuffer() const { return lastRawMsg; }
+    int getRawLen() const { return lastRawLen; }
+    unsigned long getTotalBytesReceived() const { return totalBytesReceived; }
+
 private:
     HardwareSerial* smlSerial;
     SmlData smlData;
     uint8_t rxBuffer[SML_RX_BUFFER_SIZE];
     int bufferPos;
+    uint8_t lastRawMsg[SML_RX_BUFFER_SIZE];
+    int lastRawLen;
+    unsigned long totalBytesReceived;
     bool parseSmlMessage(const uint8_t* buffer, int length);
     void storeObisValue(const char* obisCode, float value, const char* unit);
     int findOrCreateObisEntry(const char* obisCode);
